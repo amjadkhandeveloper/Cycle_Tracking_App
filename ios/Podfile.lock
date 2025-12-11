@@ -27,6 +27,8 @@ PODS:
   - sqflite_darwin (0.0.4):
     - Flutter
     - FlutterMacOS
+  - url_launcher_ios (0.0.1):
+    - Flutter
 
 DEPENDENCIES:
   - battery_plus (from `.symlinks/plugins/battery_plus/ios`)
@@ -37,6 +39,7 @@ DEPENDENCIES:
   - path_provider_foundation (from `.symlinks/plugins/path_provider_foundation/darwin`)
   - shared_preferences_foundation (from `.symlinks/plugins/shared_preferences_foundation/darwin`)
   - sqflite_darwin (from `.symlinks/plugins/sqflite_darwin/darwin`)
+  - url_launcher_ios (from `.symlinks/plugins/url_launcher_ios/ios`)
 
 SPEC REPOS:
   trunk:
@@ -60,6 +63,8 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/shared_preferences_foundation/darwin"
   sqflite_darwin:
     :path: ".symlinks/plugins/sqflite_darwin/darwin"
+  url_launcher_ios:
+    :path: ".symlinks/plugins/url_launcher_ios/ios"
 
 SPEC CHECKSUMS:
   battery_plus: 1f754123913841c027a12384d25b1463d113aae7
@@ -72,6 +77,7 @@ SPEC CHECKSUMS:
   path_provider_foundation: bb55f6dbba17d0dccd6737fe6f7f34fbd0376880
   shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
   sqflite_darwin: 20b2a3a3b70e43edae938624ce550a3cbf66a3d0
+  url_launcher_ios: 7a95fa5b60cc718a708b8f2966718e93db0cef1b
 
 PODFILE CHECKSUM: 2b5a8954daa0824933c0d2f22b2fa3e93710903e
 

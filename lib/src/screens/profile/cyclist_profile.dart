@@ -142,6 +142,8 @@ class _CyclistProfileState extends State<CyclistProfile> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
+        width: double.infinity,
+        height: double.infinity,
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
@@ -160,326 +162,361 @@ class _CyclistProfileState extends State<CyclistProfile> {
                     valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                   ),
                 )
-              : SingleChildScrollView(
-                  child: Column(
-                    children: [
-                      // Header with back button
-                      Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Row(
-                          children: [
-                            IconButton(
-                              icon: const Icon(
-                                Icons.arrow_back,
-                                color: Colors.white,
-                              ),
-                              onPressed: () => Navigator.pop(context),
-                            ),
-                            const Expanded(
-                              child: Text(
-                                'Profile',
-                                style: TextStyle(
-                                  fontSize: 24,
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(
-                                Icons.refresh,
-                                color: Colors.white,
-                              ),
-                              onPressed: _loadStatistics,
-                            ),
-                          ],
+              : LayoutBuilder(
+                  builder: (context, constraints) {
+                    return SingleChildScrollView(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minHeight: constraints.maxHeight,
                         ),
-                      ),
-
-                      // Profile Section
-                      Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 16),
-                        padding: const EdgeInsets.all(24),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.2),
-                            width: 1,
-                          ),
-                        ),
-                        child: Row(
+                        child: Column(
                           children: [
-                            // Profile Photo
-                            Container(
-                              width: 120,
-                              height: 120,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: Colors.white,
-                                  width: 4,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.2),
-                                    blurRadius: 10,
-                                    spreadRadius: 2,
+                            // Header with back button
+                            Padding(
+                              padding: const EdgeInsets.all(16.0),
+                              child: Row(
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.arrow_back,
+                                      color: Colors.white,
+                                    ),
+                                    onPressed: () => Navigator.pop(context),
+                                  ),
+                                  const Expanded(
+                                    child: Text(
+                                      'Profile',
+                                      style: TextStyle(
+                                        fontSize: 24,
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.refresh,
+                                      color: Colors.white,
+                                    ),
+                                    onPressed: _loadStatistics,
                                   ),
                                 ],
                               ),
-                              child: ClipOval(
-                                child:
-                                    _profileImageUrl != null &&
-                                        _profileImageUrl!.isNotEmpty
-                                    ? Image.network(
-                                        _profileImageUrl!,
-                                        fit: BoxFit.cover,
-                                        errorBuilder:
-                                            (context, error, stackTrace) {
-                                              return _buildDefaultAvatar();
-                                            },
-                                      )
-                                    : _buildDefaultAvatar(),
-                              ),
                             ),
-                            const SizedBox(width: 20),
-                            // Name
-                            Column(
-                              children: [
-                                Text(
-                                  _name,
-                                  style: const TextStyle(
-                                    fontSize: 24,
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                  ),
+
+                            // Profile Section
+                            Container(
+                              margin: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                              ),
+                              padding: const EdgeInsets.all(24),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.2),
+                                  width: 1,
                                 ),
-                                const SizedBox(height: 12),
-                                // Mobile Number
-                                if (_mobileNumber.isNotEmpty)
-                                  Padding(
-                                    padding: const EdgeInsets.only(bottom: 8),
-                                    child: Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Icon(
-                                          Icons.phone,
-                                          color: Colors.white.withValues(
-                                            alpha: 0.8,
+                              ),
+                              child: Row(
+                                children: [
+                                  // Profile Photo
+                                  Container(
+                                    width: 120,
+                                    height: 120,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: Colors.white,
+                                        width: 4,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withValues(
+                                            alpha: 0.2,
                                           ),
-                                          size: 18,
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Text(
-                                          _mobileNumber,
-                                          style: TextStyle(
-                                            fontSize: 16,
-                                            color: Colors.white.withValues(
-                                              alpha: 0.9,
-                                            ),
-                                            fontWeight: FontWeight.w500,
-                                          ),
+                                          blurRadius: 10,
+                                          spreadRadius: 2,
                                         ),
                                       ],
                                     ),
+                                    child: ClipOval(
+                                      child:
+                                          _profileImageUrl != null &&
+                                              _profileImageUrl!.isNotEmpty
+                                          ? Image.network(
+                                              _profileImageUrl!,
+                                              fit: BoxFit.cover,
+                                              errorBuilder:
+                                                  (context, error, stackTrace) {
+                                                    return _buildDefaultAvatar();
+                                                  },
+                                            )
+                                          : _buildDefaultAvatar(),
+                                    ),
                                   ),
-                                // Vehicle Number
-                                if (_vehicleNumber.isNotEmpty)
-                                  Row(
+                                  const SizedBox(width: 20),
+                                  // Name
+                                  Column(
+                                    children: [
+                                      Text(
+                                        _name,
+                                        style: const TextStyle(
+                                          fontSize: 24,
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      // Mobile Number
+                                      if (_mobileNumber.isNotEmpty)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            bottom: 8,
+                                          ),
+                                          child: Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
+                                            children: [
+                                              Icon(
+                                                Icons.phone,
+                                                color: Colors.white.withValues(
+                                                  alpha: 0.8,
+                                                ),
+                                                size: 18,
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Text(
+                                                _mobileNumber,
+                                                style: TextStyle(
+                                                  fontSize: 16,
+                                                  color: Colors.white
+                                                      .withValues(alpha: 0.9),
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      // Vehicle Number
+                                      if (_vehicleNumber.isNotEmpty)
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: [
+                                            Icon(
+                                              Icons.directions_bike,
+                                              color: Colors.white.withValues(
+                                                alpha: 0.8,
+                                              ),
+                                              size: 18,
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              _vehicleNumber,
+                                              style: TextStyle(
+                                                fontSize: 16,
+                                                color: Colors.white.withValues(
+                                                  alpha: 0.9,
+                                                ),
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            const SizedBox(height: 16),
+
+                            // Total Pollings Card
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16.0,
+                              ),
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.2),
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(20),
+                                  child: Row(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      Icon(
-                                        Icons.directions_bike,
-                                        color: Colors.white.withValues(
-                                          alpha: 0.8,
-                                        ),
-                                        size: 18,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        _vehicleNumber,
-                                        style: TextStyle(
-                                          fontSize: 16,
-                                          color: Colors.white.withValues(
-                                            alpha: 0.9,
+                                      Container(
+                                        padding: const EdgeInsets.all(16),
+                                        decoration: BoxDecoration(
+                                          color: Colors.blue.withValues(
+                                            alpha: 0.3,
                                           ),
-                                          fontWeight: FontWeight.w500,
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
                                         ),
+                                        child: const Icon(
+                                          Icons.location_on,
+                                          color: Colors.white,
+                                          size: 32,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 20),
+                                      Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Total Pollings',
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              color: Colors.white.withValues(
+                                                alpha: 0.7,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            '$_totalPollings',
+                                            style: const TextStyle(
+                                              fontSize: 32,
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ],
                                   ),
-                              ],
+                                ),
+                              ),
                             ),
-                          ],
-                        ),
-                      ),
 
-                      const SizedBox(height: 16),
+                            const SizedBox(height: 16),
 
-                      // Total Pollings Card
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.2),
-                              width: 1,
-                            ),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(20),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(16),
-                                  decoration: BoxDecoration(
-                                    color: Colors.blue.withValues(alpha: 0.3),
-                                    borderRadius: BorderRadius.circular(12),
+                            // View Toggle Buttons
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16.0,
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: _buildViewToggleButton(
+                                      'Day',
+                                      'day',
+                                      Icons.calendar_today,
+                                    ),
                                   ),
-                                  child: const Icon(
-                                    Icons.location_on,
-                                    color: Colors.white,
-                                    size: 32,
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: _buildViewToggleButton(
+                                      'Month',
+                                      'month',
+                                      Icons.calendar_month,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: _buildViewToggleButton(
+                                      'Year',
+                                      'year',
+                                      Icons.calendar_view_month,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            const SizedBox(height: 16),
+
+                            // Statistics List
+                            Container(
+                              margin: const EdgeInsets.symmetric(
+                                horizontal: 16.0,
+                              ),
+                              decoration: BoxDecoration(
+                                // color: Colors.white.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.2),
+                                  width: 1,
+                                ),
+                              ),
+                              child: _buildStatisticsList(),
+                            ),
+
+                            const SizedBox(height: 24),
+
+                            // Event Duration Info
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16.0,
+                              ),
+                              child: Container(
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: Colors.green.withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: Colors.green.withValues(alpha: 0.3),
+                                    width: 1,
                                   ),
                                 ),
-                                const SizedBox(width: 20),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                child: Row(
                                   children: [
-                                    Text(
-                                      'Total Pollings',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: Colors.white.withValues(
-                                          alpha: 0.7,
-                                        ),
-                                      ),
+                                    Icon(
+                                      Icons.event,
+                                      color: Colors.white,
+                                      size: 24,
                                     ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      '$_totalPollings',
-                                      style: const TextStyle(
-                                        fontSize: 32,
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 16),
-
-                      // View Toggle Buttons
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: _buildViewToggleButton(
-                                'Day',
-                                'day',
-                                Icons.calendar_today,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _buildViewToggleButton(
-                                'Month',
-                                'month',
-                                Icons.calendar_month,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _buildViewToggleButton(
-                                'Year',
-                                'year',
-                                Icons.calendar_view_month,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(height: 16),
-
-                      // Statistics List
-                      Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 16.0),
-                        decoration: BoxDecoration(
-                          // color: Colors.white.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.2),
-                            width: 1,
-                          ),
-                        ),
-                        child: _buildStatisticsList(),
-                      ),
-
-                      const SizedBox(height: 24),
-
-                      // Event Duration Info
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.green.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: Colors.green.withValues(alpha: 0.3),
-                              width: 1,
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(Icons.event, color: Colors.white, size: 24),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Event Duration',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.white.withValues(
-                                          alpha: 0.7,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    const Text(
-                                      '50-60 Days',
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Event Duration',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.white.withValues(
+                                                alpha: 0.7,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          const Text(
+                                            '50-60 Days',
+                                            style: TextStyle(
+                                              fontSize: 16,
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
-                            ],
-                          ),
+                            ),
+
+                            SizedBox(
+                              height: MediaQuery.of(context).size.height * 0.05,
+                            ),
+                          ],
                         ),
                       ),
-
-                      const SizedBox(height: 24),
-                    ],
-                  ),
+                    );
+                  },
                 ),
         ),
       ),

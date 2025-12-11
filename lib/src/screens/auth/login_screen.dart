@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../services/auth_service.dart';
 import '../../services/user_preferences_service.dart';
 import '../home/dashboard_screen.dart';
@@ -55,6 +57,52 @@ class _LoginScreenState extends State<LoginScreen>
     _usernameController.dispose();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  /// Call number - copy to clipboard and open dial pad
+  Future<void> _callNumber(String phoneNumber) async {
+    try {
+      // Copy phone number to clipboard
+      await Clipboard.setData(ClipboardData(text: phoneNumber));
+
+      // Open dial pad
+      final Uri phoneUri = Uri(scheme: 'tel', path: phoneNumber);
+      if (await canLaunchUrl(phoneUri)) {
+        await launchUrl(phoneUri);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Cannot open dial pad. Phone number copied: $phoneNumber',
+              ),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      }
+
+      // Show success message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Phone number copied: $phoneNumber'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error calling number: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _handleLogin() async {
@@ -135,7 +183,10 @@ class _LoginScreenState extends State<LoginScreen>
           } else {
             // Login failed
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(message), backgroundColor: Colors.red),
+              SnackBar(
+                content: Text("Invalid credential"),
+                backgroundColor: Colors.red,
+              ),
             );
           }
         }
@@ -226,31 +277,24 @@ class _LoginScreenState extends State<LoginScreen>
                                 ),
                               ),
                               const SizedBox(height: 24),
-                              Text(
-                                "Welcome Back",
-                                style: TextStyle(
-                                  fontSize: 32,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                  letterSpacing: 1,
-                                  shadows: [
-                                    Shadow(
-                                      color: Colors.black.withValues(
-                                        alpha: 0.3,
+                              Center(
+                                child: Text(
+                                  "Swadeshi Jagaran Cyclothon",
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                    letterSpacing: 1,
+                                    shadows: [
+                                      Shadow(
+                                        color: Colors.black.withValues(
+                                          alpha: 0.3,
+                                        ),
+                                        offset: const Offset(0, 2),
+                                        blurRadius: 4,
                                       ),
-                                      offset: const Offset(0, 2),
-                                      blurRadius: 4,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                "Sign in to continue",
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  color: Colors.white.withValues(alpha: 0.9),
-                                  fontWeight: FontWeight.w300,
+                                    ],
+                                  ),
                                 ),
                               ),
                             ],
@@ -258,7 +302,7 @@ class _LoginScreenState extends State<LoginScreen>
                         ),
                       ),
 
-                      SizedBox(height: size.height * 0.05),
+                      SizedBox(height: size.height * 0.03),
 
                       // Login Form
                       FadeTransition(
@@ -507,36 +551,98 @@ class _LoginScreenState extends State<LoginScreen>
 
                                 const SizedBox(height: 24),
 
-                                // Register Link
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Text(
-                                      "Don't have an account? ",
-                                      style: TextStyle(
+                                // Help Line
+                                GestureDetector(
+                                  onTap: () => _callNumber('+919343778899'),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 12,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.1,
+                                      ),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
                                         color: Colors.white.withValues(
-                                          alpha: 0.7,
+                                          alpha: 0.2,
                                         ),
+                                        width: 1,
                                       ),
                                     ),
-                                    TextButton(
-                                      onPressed: () {
-                                        // Navigate to register screen
-                                        Navigator.pushNamed(
-                                          context,
-                                          '/register',
-                                        );
-                                      },
-                                      child: const Text(
-                                        'Sign Up',
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.bold,
-                                          decoration: TextDecoration.underline,
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.phone,
+                                          color: Colors.white.withValues(
+                                            alpha: 0.9,
+                                          ),
+                                          size: 18,
                                         ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          "Help Line: +91-9343778899",
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            color: Colors.white.withValues(
+                                              alpha: 0.9,
+                                            ),
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                // Hotline
+                                GestureDetector(
+                                  onTap: () => _callNumber('+919535997788'),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 12,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.1,
+                                      ),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.2,
+                                        ),
+                                        width: 1,
                                       ),
                                     ),
-                                  ],
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.phone,
+                                          color: Colors.white.withValues(
+                                            alpha: 0.9,
+                                          ),
+                                          size: 18,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          "Hotline: +91-9535997788",
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            color: Colors.white.withValues(
+                                              alpha: 0.9,
+                                            ),
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                 ),
                               ],
                             ),

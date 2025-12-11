@@ -48,20 +48,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _isLocationServiceEnabled = false;
   bool _isLoadingLocation = true;
   DateTime? _lastUpdateTime;
-  DateTime? _lastSyncTime;
-  int _pendingSyncCount = 0;
-  int _totalPollingCount = 0; // Total pollings captured
-  int _lastPollingBatchSize = 0;
 
   // Event data (will be updated from API)
-  String eventName = 'Cycle Rally 2025';
+  String eventName = 'Swadeshi Jagaran Cyclothon';
   DateTime? eventStartDate;
   DateTime? eventEndDate;
 
-  // Markers for ambulance and bicycle users
+  // Markers for vehicles
   Set<Marker> _vehicleMarkers = {};
-  BitmapDescriptor? _ambulanceIcon;
-  BitmapDescriptor? _bicycleIcon;
+  BitmapDescriptor? _ambulanceIcon; // vehicleStatus 1
+  BitmapDescriptor? _bicycleIcon; // vehicleStatus 0
+  BitmapDescriptor? _carIcon; // vehicleStatus 2
+  BitmapDescriptor? _logoIcon; // vehicleStatus 3
 
   // List of ambulances from dashboard API
   List<Map<String, dynamic>> _ambulanceList = [];
@@ -72,9 +70,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     // Initialize asynchronously with error handling
     _initializeDeviceAndUser().catchError((error) {
       debugPrint('Error initializing device and user: $error');
-    });
-    _loadPendingSyncCount().catchError((error) {
-      debugPrint('Error loading pending sync count: $error');
     });
     _initializeLocationSequentially().catchError((error) {
       debugPrint('Error initializing location: $error');
@@ -112,6 +107,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   _lastUpdateTime = DateTime.now();
                 });
                 _updateMapCamera();
+                _updateUserMarker(); // Update user marker
                 _startTracking();
               }
             } catch (e) {
@@ -170,16 +166,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  /// Load custom icons for ambulance and bicycle markers
+  /// Load custom icons based on vehicle status
+  /// 0 - Other User (ic_bycycle)
+  /// 1 - Ambulance (ic_ambulance)
+  /// 2 - Vehicle (ic_car)
+  /// 3 - Active user (ic_logo)
   Future<void> _loadCustomIcons() async {
     try {
+      _bicycleIcon = await BitmapDescriptor.fromAssetImage(
+        const ImageConfiguration(size: Size(48, 48)),
+        'assets/images/ic_bycycle.png',
+      );
       _ambulanceIcon = await BitmapDescriptor.fromAssetImage(
         const ImageConfiguration(size: Size(48, 48)),
         'assets/images/ic_ambulance.png',
       );
-      _bicycleIcon = await BitmapDescriptor.fromAssetImage(
+      _carIcon = await BitmapDescriptor.fromAssetImage(
         const ImageConfiguration(size: Size(48, 48)),
-        'assets/images/ic_bycycle.png',
+        'assets/images/ic_car.png',
+      );
+      _logoIcon = await BitmapDescriptor.fromAssetImage(
+        const ImageConfiguration(size: Size(48, 48)),
+        'assets/images/ic_logo.png',
       );
     } catch (e) {
       debugPrint('Error loading custom icons: $e');
@@ -250,12 +258,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     for (var vehicle in vehicles) {
       try {
+        final vehicleStatus = vehicle['vehicleStatus'] as int? ?? -1;
         final vehicleNo = vehicle['vehicleNo'] as String? ?? '';
         final driverMobileNo = vehicle['driverMobileNo'] as String? ?? '';
 
-        // Only include ambulances (vehicles starting with "Ambulance")
-        if (vehicleNo.toLowerCase().startsWith('ambulance') &&
-            driverMobileNo.isNotEmpty) {
+        // Only include ambulances (vehicleStatus == 1)
+        if (vehicleStatus == 1 && driverMobileNo.isNotEmpty) {
           ambulanceList.add({
             'vehicleNo': vehicleNo,
             'driverMobileNo': driverMobileNo,
@@ -273,6 +281,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  /// Update user marker on the map
+  void _updateUserMarker() {
+    if (_currentPosition == null || _logoIcon == null) {
+      return;
+    }
+
+    final userMarker = Marker(
+      markerId: const MarkerId('user_current_position'),
+      position: LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+      icon: _logoIcon!,
+      infoWindow: const InfoWindow(
+        title: 'Your Location',
+        snippet: 'Active user',
+      ),
+    );
+
+    // Update markers set
+    final updatedMarkers = Set<Marker>.from(_vehicleMarkers);
+    // Remove old user marker if exists
+    updatedMarkers.removeWhere(
+      (marker) => marker.markerId.value == 'user_current_position',
+    );
+    // Add new user marker
+    updatedMarkers.add(userMarker);
+
+    if (mounted) {
+      setState(() {
+        _vehicleMarkers = updatedMarkers;
+      });
+    }
+  }
+
   /// Update vehicle markers on the map
   void _updateVehicleMarkers(List<dynamic> vehicles) {
     final Set<Marker> newMarkers = {};
@@ -280,6 +320,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     for (var vehicle in vehicles) {
       try {
         final vehicleNo = vehicle['vehicleNo'] as String? ?? '';
+        final vehicleStatus = vehicle['vehicleStatus'] as int? ?? -1;
         final lat = vehicle['lat'] as double?;
         final lon = vehicle['lon'] as double?;
         final location = vehicle['location'] as String? ?? '';
@@ -289,16 +330,44 @@ class _DashboardScreenState extends State<DashboardScreen> {
           continue; // Skip invalid coordinates
         }
 
-        // Determine icon based on vehicle number
+        // Determine icon based on vehicleStatus
+        // 0 - Other User (ic_bycycle)
+        // 1 - Ambulance (ic_ambulance)
+        // 2 - Vehicle (ic_car)
+        // 3 - Active user (ic_logo)
         BitmapDescriptor icon;
-        if (vehicleNo.toLowerCase().startsWith('ambulance')) {
-          icon =
-              _ambulanceIcon ??
-              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
-        } else {
-          icon =
-              _bicycleIcon ??
-              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen);
+        switch (vehicleStatus) {
+          case 0: // Other User
+            icon =
+                _bicycleIcon ??
+                BitmapDescriptor.defaultMarkerWithHue(
+                  BitmapDescriptor.hueGreen,
+                );
+            break;
+          case 1: // Ambulance
+            icon =
+                _ambulanceIcon ??
+                BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
+            break;
+          case 2: // Vehicle/Car
+            icon =
+                _carIcon ??
+                BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue);
+            break;
+          case 3: // Active user
+            icon =
+                _logoIcon ??
+                BitmapDescriptor.defaultMarkerWithHue(
+                  BitmapDescriptor.hueOrange,
+                );
+            break;
+          default:
+            // Fallback to bicycle icon for unknown status
+            icon =
+                _bicycleIcon ??
+                BitmapDescriptor.defaultMarkerWithHue(
+                  BitmapDescriptor.hueGreen,
+                );
         }
 
         // Create marker
@@ -320,51 +389,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     }
 
+    // Add user's current position as a marker with vehicleStatus 3 icon (ic_logo)
+    if (_currentPosition != null && _logoIcon != null) {
+      final userMarker = Marker(
+        markerId: const MarkerId('user_current_position'),
+        position: LatLng(
+          _currentPosition!.latitude,
+          _currentPosition!.longitude,
+        ),
+        icon: _logoIcon!,
+        infoWindow: const InfoWindow(
+          title: 'Your Location',
+          snippet: 'Active user',
+        ),
+      );
+      newMarkers.add(userMarker);
+    }
+
     if (mounted) {
       setState(() {
         _vehicleMarkers = newMarkers;
       });
-
-      // Fit all markers in bounds after updating markers
-      _fitMarkersInBounds();
-    }
-  }
-
-  /// Fit all markers in the map bounds
-  void _fitMarkersInBounds() {
-    if (_mapController == null || _vehicleMarkers.isEmpty) {
-      return;
-    }
-
-    try {
-      // Calculate bounds from all markers
-      double? minLat, maxLat, minLng, maxLng;
-
-      for (var marker in _vehicleMarkers) {
-        final lat = marker.position.latitude;
-        final lng = marker.position.longitude;
-
-        minLat = minLat == null ? lat : (minLat < lat ? minLat : lat);
-        maxLat = maxLat == null ? lat : (maxLat > lat ? maxLat : lat);
-        minLng = minLng == null ? lng : (minLng < lng ? minLng : lng);
-        maxLng = maxLng == null ? lng : (maxLng > lng ? maxLng : lng);
-      }
-
-      if (minLat != null &&
-          maxLat != null &&
-          minLng != null &&
-          maxLng != null) {
-        final bounds = LatLngBounds(
-          southwest: LatLng(minLat, minLng),
-          northeast: LatLng(maxLat, maxLng),
-        );
-
-        _mapController!.animateCamera(
-          CameraUpdate.newLatLngBounds(bounds, 100.0), // 100px padding
-        );
-      }
-    } catch (e) {
-      debugPrint('Error fitting markers in bounds: $e');
     }
   }
 
@@ -434,6 +479,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _isLoadingLocation = false;
           });
           _updateMapCamera();
+          _updateUserMarker(); // Update user marker
           // Automatically start tracking when location is available
           _startTracking();
         }
@@ -610,6 +656,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _isLoadingLocation = false;
         });
         _updateMapCamera();
+        _updateUserMarker(); // Update user marker
         // Automatically start tracking when location is available
         _startTracking();
 
@@ -655,10 +702,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void _updateMapCamera() {
     if (_mapController != null && _currentPosition != null) {
       _mapController!.animateCamera(
-        CameraUpdate.newLatLng(
+        CameraUpdate.newLatLngZoom(
           LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+          15.0, // Focus on user position with zoom level 15
         ),
       );
+    }
+  }
+
+  /// Zoom in on the map
+  void _zoomIn() {
+    if (_mapController != null) {
+      _mapController!.animateCamera(CameraUpdate.zoomIn());
+    }
+  }
+
+  /// Zoom out on the map
+  void _zoomOut() {
+    if (_mapController != null) {
+      _mapController!.animateCamera(CameraUpdate.zoomOut());
     }
   }
 
@@ -697,14 +759,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               _lastUpdateTime = DateTime.now();
             });
             _updateMapCamera();
+            _updateUserMarker(); // Update user marker
 
             // Save location to database with all required fields
             await _saveLocation(position);
-
-            // Increment polling count
-            setState(() {
-              _totalPollingCount++;
-            });
 
             // Send immediately to server after each poll (every 10 minutes)
             await _sendLocationImmediately(position);
@@ -737,10 +795,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _lastUpdateTime = DateTime.now();
           });
           _updateMapCamera();
+          _updateUserMarker(); // Update user marker
           await _saveLocation(position);
-          setState(() {
-            _totalPollingCount++;
-          });
           // Send initial location immediately
           await _sendLocationImmediately(position);
         }
@@ -774,16 +830,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     // Try to sync unsynced data
     try {
-      final countSynced = await _trackingService
-          .syncPendingLocationsWithRetry();
-      await _loadPendingSyncCount();
-
-      if (mounted && countSynced > 0) {
-        setState(() {
-          _lastSyncTime = DateTime.now();
-          _lastPollingBatchSize = countSynced;
-        });
-      }
+      await _trackingService.syncPendingLocationsWithRetry();
     } catch (e) {
       debugPrint('Retry sync error: $e');
     }
@@ -824,24 +871,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         accuracy: accuracy,
         battery: batteryLevel,
       );
-      await _loadPendingSyncCount();
     } catch (e) {
       debugPrint('Error saving location: $e');
       // Handle database errors gracefully
-    }
-  }
-
-  Future<void> _loadPendingSyncCount() async {
-    try {
-      final unsynced = await _databaseService.getUnsyncedLocations();
-      if (mounted) {
-        setState(() {
-          _pendingSyncCount = unsynced.length;
-        });
-      }
-    } catch (e) {
-      debugPrint('Error loading pending sync count: $e');
-      // Database might not be initialized yet, ignore error
     }
   }
 
@@ -880,6 +912,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _lastUpdateTime = DateTime.now();
         });
         _updateMapCamera();
+        _updateUserMarker(); // Update user marker
 
         // Save location to database
         await _saveLocation(position);
@@ -896,9 +929,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           );
 
-          // Show ambulance selection dialog after sending SOS
+          // Show ambulance call popup after sending SOS
           Future.delayed(const Duration(milliseconds: 500), () {
-            _showAmbulanceSelectionDialog();
+            _showAmbulanceCallPopup();
           });
         }
       }
@@ -915,8 +948,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  /// Show ambulance selection dialog
-  void _showAmbulanceSelectionDialog() {
+  /// Show ambulance call popup - direct call if single ambulance, selection if multiple
+  void _showAmbulanceCallPopup() {
     if (_ambulanceList.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -927,6 +960,118 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return;
     }
 
+    // If only one ambulance, show direct call popup
+    if (_ambulanceList.length == 1) {
+      final ambulance = _ambulanceList[0];
+      final vehicleNo = ambulance['vehicleNo'] as String;
+      final driverMobileNo = ambulance['driverMobileNo'] as String;
+      _showDirectAmbulanceCallDialog(vehicleNo, driverMobileNo);
+      return;
+    }
+
+    // If multiple ambulances, show selection dialog
+    _showAmbulanceSelectionDialog();
+  }
+
+  /// Show direct ambulance call dialog for single ambulance
+  void _showDirectAmbulanceCallDialog(String vehicleNo, String driverMobileNo) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.local_hospital, color: Colors.red, size: 28),
+            SizedBox(width: 8),
+            Text(
+              'Call Ambulance',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.deepPurple,
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.red.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.local_hospital,
+                color: Colors.red,
+                size: 48,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              vehicleNo,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.phone, size: 20, color: Colors.green),
+                const SizedBox(width: 8),
+                Text(
+                  driverMobileNo,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    color: Colors.green,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Colors.grey, fontSize: 16),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _callAmbulance(driverMobileNo);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.phone, size: 20),
+                SizedBox(width: 8),
+                Text('Call Now', style: TextStyle(fontSize: 16)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Show ambulance selection dialog for multiple ambulances
+  void _showAmbulanceSelectionDialog() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -1124,13 +1269,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       // Send immediately to tracking API
       await _trackingService.sendSingleLocation(locationData);
-
-      // Update sync time
-      if (mounted) {
-        setState(() {
-          _lastSyncTime = DateTime.now();
-        });
-      }
     } catch (e) {
       debugPrint('Error sending location immediately: $e');
       // Don't throw - let it fail silently and be synced later
@@ -1174,20 +1312,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return '${difference.inMinutes} min ago';
     } else {
       return _formatDateTime(_lastUpdateTime!);
-    }
-  }
-
-  String _formatLastSync() {
-    if (_lastSyncTime == null) return 'Never';
-    final now = DateTime.now();
-    final difference = now.difference(_lastSyncTime!);
-
-    if (difference.inMinutes < 1) {
-      return 'Just now';
-    } else if (difference.inMinutes < 60) {
-      return '${difference.inMinutes} min ago';
-    } else {
-      return _formatDateTime(_lastSyncTime!);
     }
   }
 
@@ -1483,13 +1607,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       ),
                                       onMapCreated: (controller) {
                                         _mapController = controller;
-                                        // Fit markers in bounds after map is created
-                                        Future.delayed(
-                                          const Duration(milliseconds: 500),
-                                          () {
-                                            _fitMarkersInBounds();
-                                          },
-                                        );
+                                        // Focus on user position when map is created
+                                        if (_currentPosition != null) {
+                                          Future.delayed(
+                                            const Duration(milliseconds: 300),
+                                            () {
+                                              _updateMapCamera();
+                                            },
+                                          );
+                                        }
                                       },
                                       myLocationEnabled: false,
                                       myLocationButtonEnabled: false,
@@ -1519,6 +1645,85 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                         ),
                                       ),
                                     ),
+                                    // Zoom controls overlay
+                                    Positioned(
+                                      top: 8,
+                                      right: 8,
+                                      child: Column(
+                                        children: [
+                                          const SizedBox(
+                                            height: 48,
+                                          ), // Space for fullscreen button
+                                          Material(
+                                            color: Colors.white,
+                                            borderRadius:
+                                                const BorderRadius.only(
+                                                  topLeft: Radius.circular(8),
+                                                  topRight: Radius.circular(8),
+                                                ),
+                                            elevation: 4,
+                                            child: InkWell(
+                                              onTap: _zoomIn,
+                                              borderRadius:
+                                                  const BorderRadius.only(
+                                                    topLeft: Radius.circular(8),
+                                                    topRight: Radius.circular(
+                                                      8,
+                                                    ),
+                                                  ),
+                                              child: Container(
+                                                padding: const EdgeInsets.all(
+                                                  8,
+                                                ),
+                                                child: const Icon(
+                                                  Icons.add,
+                                                  color: Colors.deepPurple,
+                                                  size: 24,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          Container(
+                                            height: 1,
+                                            color: Colors.grey.shade300,
+                                          ),
+                                          Material(
+                                            color: Colors.white,
+                                            borderRadius:
+                                                const BorderRadius.only(
+                                                  bottomLeft: Radius.circular(
+                                                    8,
+                                                  ),
+                                                  bottomRight: Radius.circular(
+                                                    8,
+                                                  ),
+                                                ),
+                                            elevation: 4,
+                                            child: InkWell(
+                                              onTap: _zoomOut,
+                                              borderRadius:
+                                                  const BorderRadius.only(
+                                                    bottomLeft: Radius.circular(
+                                                      8,
+                                                    ),
+                                                    bottomRight:
+                                                        Radius.circular(8),
+                                                  ),
+                                              child: Container(
+                                                padding: const EdgeInsets.all(
+                                                  8,
+                                                ),
+                                                child: const Icon(
+                                                  Icons.remove,
+                                                  color: Colors.deepPurple,
+                                                  size: 24,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
                                   ],
                                 ),
                         ),
@@ -1526,143 +1731,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                       const SizedBox(height: 12),
 
-                      // Last Update & Sync Status
+                      // Last Update
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        child: Row(
                           children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Row(
-                                  children: [
-                                    Icon(
-                                      Icons.location_on,
-                                      color: Colors.white.withValues(
-                                        alpha: 0.7,
-                                      ),
-                                      size: 16,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      'Location: ${_formatLastUpdate()}',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.white.withValues(
-                                          alpha: 0.7,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                if (_pendingSyncCount > 0)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.orange.withValues(
-                                        alpha: 0.3,
-                                      ),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Icon(
-                                          Icons.sync,
-                                          color: Colors.white,
-                                          size: 14,
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          '$_pendingSyncCount pending',
-                                          style: const TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                              ],
+                            Icon(
+                              Icons.location_on,
+                              color: Colors.white.withValues(alpha: 0.7),
+                              size: 16,
                             ),
-                            const SizedBox(height: 8),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Row(
-                                  children: [
-                                    Icon(
-                                      Icons.cloud_upload,
-                                      color: Colors.white.withValues(
-                                        alpha: 0.7,
-                                      ),
-                                      size: 16,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      'Last sync: ${_formatLastSync()}',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.white.withValues(
-                                          alpha: 0.7,
-                                        ),
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                    if (_lastSyncTime != null) ...[
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        '(${_formatDateTime(_lastSyncTime!)})',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: Colors.white.withValues(
-                                            alpha: 0.6,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                                Row(
-                                  children: [
-                                    Icon(
-                                      Icons.send,
-                                      color: Colors.white.withValues(
-                                        alpha: 0.7,
-                                      ),
-                                      size: 16,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      'Polling: $_totalPollingCount',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.white.withValues(
-                                          alpha: 0.7,
-                                        ),
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                    if (_lastPollingBatchSize > 0) ...[
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        '(+$_lastPollingBatchSize synced)',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: Colors.green.withValues(
-                                            alpha: 0.8,
-                                          ),
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              ],
+                            const SizedBox(width: 6),
+                            Text(
+                              'Location: ${_formatLastUpdate()}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.white.withValues(alpha: 0.7),
+                              ),
                             ),
                           ],
                         ),
@@ -1944,8 +2029,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         builder: (context) => _FullscreenMapScreen(
           vehicleMarkers: _vehicleMarkers,
           currentPosition: _currentPosition,
-          ambulanceIcon: _ambulanceIcon,
-          bicycleIcon: _bicycleIcon,
+          logoIcon: _logoIcon,
         ),
       ),
     );
@@ -1956,14 +2040,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
 class _FullscreenMapScreen extends StatefulWidget {
   final Set<Marker> vehicleMarkers;
   final Position? currentPosition;
-  final BitmapDescriptor? ambulanceIcon;
-  final BitmapDescriptor? bicycleIcon;
+  final BitmapDescriptor? logoIcon;
 
   const _FullscreenMapScreen({
     required this.vehicleMarkers,
     this.currentPosition,
-    this.ambulanceIcon,
-    this.bicycleIcon,
+    this.logoIcon,
   });
 
   @override
@@ -1973,51 +2055,37 @@ class _FullscreenMapScreen extends StatefulWidget {
 class _FullscreenMapScreenState extends State<_FullscreenMapScreen> {
   GoogleMapController? _fullscreenMapController;
 
-  @override
-  void initState() {
-    super.initState();
-    // Fit markers in bounds after a short delay
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      Future.delayed(const Duration(milliseconds: 500), () {
-        _fitMarkersInBounds();
-      });
-    });
-  }
-
-  void _fitMarkersInBounds() {
-    if (_fullscreenMapController == null || widget.vehicleMarkers.isEmpty) {
+  void _focusOnUserPosition() {
+    if (_fullscreenMapController == null || widget.currentPosition == null) {
       return;
     }
 
     try {
-      // Calculate bounds from all markers
-      double? minLat, maxLat, minLng, maxLng;
-
-      for (var marker in widget.vehicleMarkers) {
-        final lat = marker.position.latitude;
-        final lng = marker.position.longitude;
-
-        minLat = minLat == null ? lat : (minLat < lat ? minLat : lat);
-        maxLat = maxLat == null ? lat : (maxLat > lat ? maxLat : lat);
-        minLng = minLng == null ? lng : (minLng < lng ? minLng : lng);
-        maxLng = maxLng == null ? lng : (maxLng > lng ? maxLng : lng);
-      }
-
-      if (minLat != null &&
-          maxLat != null &&
-          minLng != null &&
-          maxLng != null) {
-        final bounds = LatLngBounds(
-          southwest: LatLng(minLat, minLng),
-          northeast: LatLng(maxLat, maxLng),
-        );
-
-        _fullscreenMapController!.animateCamera(
-          CameraUpdate.newLatLngBounds(bounds, 50.0), // 50px padding
-        );
-      }
+      _fullscreenMapController!.animateCamera(
+        CameraUpdate.newLatLngZoom(
+          LatLng(
+            widget.currentPosition!.latitude,
+            widget.currentPosition!.longitude,
+          ),
+          15.0, // Focus on user position with zoom level 15
+        ),
+      );
     } catch (e) {
-      debugPrint('Error fitting markers in bounds: $e');
+      debugPrint('Error focusing on user position: $e');
+    }
+  }
+
+  /// Zoom in on the fullscreen map
+  void _zoomIn() {
+    if (_fullscreenMapController != null) {
+      _fullscreenMapController!.animateCamera(CameraUpdate.zoomIn());
+    }
+  }
+
+  /// Zoom out on the fullscreen map
+  void _zoomOut() {
+    if (_fullscreenMapController != null) {
+      _fullscreenMapController!.animateCamera(CameraUpdate.zoomOut());
     }
   }
 
@@ -2038,7 +2106,10 @@ class _FullscreenMapScreenState extends State<_FullscreenMapScreen> {
             ),
             onMapCreated: (controller) {
               _fullscreenMapController = controller;
-              _fitMarkersInBounds();
+              // Focus on user position when map is created
+              Future.delayed(const Duration(milliseconds: 300), () {
+                _focusOnUserPosition();
+              });
             },
             myLocationEnabled: false,
             myLocationButtonEnabled: false,
@@ -2066,6 +2137,67 @@ class _FullscreenMapScreenState extends State<_FullscreenMapScreen> {
                       ),
                     ),
                   ),
+                ),
+              ),
+            ),
+          ),
+          // Zoom controls overlay
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Align(
+                alignment: Alignment.topRight,
+                child: Column(
+                  children: [
+                    const SizedBox(height: 48), // Space for close button
+                    Material(
+                      color: Colors.white,
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(8),
+                        topRight: Radius.circular(8),
+                      ),
+                      elevation: 4,
+                      child: InkWell(
+                        onTap: _zoomIn,
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(8),
+                          topRight: Radius.circular(8),
+                        ),
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          child: const Icon(
+                            Icons.add,
+                            color: Colors.deepPurple,
+                            size: 24,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Container(height: 1, color: Colors.grey.shade300),
+                    Material(
+                      color: Colors.white,
+                      borderRadius: const BorderRadius.only(
+                        bottomLeft: Radius.circular(8),
+                        bottomRight: Radius.circular(8),
+                      ),
+                      elevation: 4,
+                      child: InkWell(
+                        onTap: _zoomOut,
+                        borderRadius: const BorderRadius.only(
+                          bottomLeft: Radius.circular(8),
+                          bottomRight: Radius.circular(8),
+                        ),
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          child: const Icon(
+                            Icons.remove,
+                            color: Colors.deepPurple,
+                            size: 24,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
