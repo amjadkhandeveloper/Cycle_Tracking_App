@@ -1,4 +1,6 @@
 import 'package:cycle_tracking_app/src/screens/auth/login_screen.dart';
+import 'package:cycle_tracking_app/src/screens/home/dashboard_screen.dart';
+import 'package:cycle_tracking_app/src/services/user_preferences_service.dart';
 import 'package:flutter/material.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -14,6 +16,8 @@ class _SplashScreenState extends State<SplashScreen>
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
   late Animation<double> _slideAnimation;
+  final UserPreferencesService _userPreferencesService =
+      UserPreferencesService();
 
   @override
   void initState() {
@@ -47,18 +51,56 @@ class _SplashScreenState extends State<SplashScreen>
     // Start animation
     _animationController.forward();
 
-    // Wait exactly 3 seconds before navigating
-    Future.delayed(const Duration(seconds: 5), () {
-      if (mounted) {
-        _navigateToLogin();
-      }
-    });
+    // Check login status and navigate accordingly
+    _checkLoginStatusAndNavigate();
   }
 
   @override
   void dispose() {
     _animationController.dispose();
     super.dispose();
+  }
+
+  /// Check if user is logged in and navigate accordingly
+  Future<void> _checkLoginStatusAndNavigate() async {
+    // Wait for splash animation (minimum 2 seconds)
+    await Future.delayed(const Duration(seconds: 2));
+
+    if (!mounted) return;
+
+    try {
+      // Check if user is logged in
+      final isLoggedIn = await _userPreferencesService.isLoggedIn();
+
+      if (isLoggedIn) {
+        // User is logged in, get user data and navigate to dashboard
+        final userData = await _userPreferencesService.getUserData();
+        if (mounted && userData != null) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => DashboardScreen(userData: userData),
+            ),
+          );
+        } else {
+          // User data not found, navigate to login
+          if (mounted) {
+            _navigateToLogin();
+          }
+        }
+      } else {
+        // User is not logged in, navigate to login screen
+        if (mounted) {
+          _navigateToLogin();
+        }
+      }
+    } catch (e) {
+      debugPrint('Error checking login status: $e');
+      // On error, navigate to login screen
+      if (mounted) {
+        _navigateToLogin();
+      }
+    }
   }
 
   void _navigateToLogin() {

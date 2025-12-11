@@ -38,37 +38,48 @@ void syncIsolateEntry(SendPort sendPort) async {
 
             // Log complete API call (URL, Request Body, Response Body) in one entry
             try {
-              Map<String, dynamic>? responseBody;
+              // Convert request body to JSON string for full visibility
+              String requestBodyStr;
               try {
-                responseBody =
-                    jsonDecode(response.body) as Map<String, dynamic>;
+                const encoder = JsonEncoder.withIndent('  ');
+                requestBodyStr = encoder.convert(requestBody);
               } catch (e) {
-                responseBody = {'raw': response.body};
+                requestBodyStr = requestBody.toString();
               }
 
-              developer.log(
-                'API Call (Isolate): POST $url',
-                name: 'SyncIsolateService',
-                error: {
-                  'URL': url,
-                  'Method': 'POST',
-                  'Status Code': response.statusCode,
-                  'Request Body': requestBody,
-                  'Response Body': responseBody,
-                },
-              );
+              // Convert response body to JSON string for full visibility
+              String responseBodyStr = '';
+              try {
+                final responseBody = jsonDecode(response.body);
+                const encoder = JsonEncoder.withIndent('  ');
+                responseBodyStr = encoder.convert(responseBody);
+              } catch (e) {
+                // If response is not JSON, log as string
+                responseBodyStr = response.body;
+              }
+
+              // Log everything in a single, readable format
+              final logMessage =
+                  '''
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+API Call (Isolate): POST $url
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Status Code: ${response.statusCode}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Request Body:
+$requestBodyStr
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Response Body:
+$responseBodyStr
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+''';
+
+              developer.log(logMessage, name: 'SyncIsolateService');
             } catch (logError) {
               developer.log(
-                'API Call Logging Error (Isolate)',
+                'API Call Logging Error (Isolate)\nURL: $url\nMethod: POST\nStatus Code: ${response.statusCode}\nRequest Body: ${requestBody.toString()}\nResponse Body (Raw): ${response.body}\nLogging Error: ${logError.toString()}',
                 name: 'SyncIsolateService',
-                error: {
-                  'URL': url,
-                  'Method': 'POST',
-                  'Status Code': response.statusCode,
-                  'Request Body': requestBody,
-                  'Response Body (Raw)': response.body,
-                  'Logging Error': logError.toString(),
-                },
+                error: logError,
               );
             }
 
@@ -80,14 +91,13 @@ void syncIsolateEntry(SendPort sendPort) async {
             }
           } catch (e) {
             failedCount++;
+            final requestBodyStr = const JsonEncoder.withIndent(
+              '  ',
+            ).convert(location);
             developer.log(
-              'API POST Error (Isolate)',
+              'API POST Error (Isolate)\nURL: $url\nRequest Body:\n$requestBodyStr\nError: ${e.toString()}',
               name: 'SyncIsolateService',
-              error: {
-                'URL': url,
-                'Request Body': location,
-                'Error': e.toString(),
-              },
+              error: e,
             );
           }
         }

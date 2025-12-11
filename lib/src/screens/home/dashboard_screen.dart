@@ -1,13 +1,15 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../services/location_service.dart';
 import '../../services/tracking_service.dart';
 import '../../services/database_service.dart';
-import '../../services/api_service.dart';
 import '../../services/device_service.dart';
 import '../../services/user_preferences_service.dart';
+import '../../services/dashboard_isolate_service.dart';
 import 'history_screen.dart';
 import '../profile/cyclist_profile.dart';
 
@@ -24,13 +26,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final LocationService _locationService = LocationService();
   final TrackingService _trackingService = TrackingService();
   final DatabaseService _databaseService = DatabaseService();
-  final ApiService _apiService = ApiService();
   final DeviceService _deviceService = DeviceService();
   final UserPreferencesService _userPreferencesService =
       UserPreferencesService();
+  final DashboardIsolateService _dashboardIsolateService =
+      DashboardIsolateService();
 
   String? _deviceId;
   String? _userId;
+  String? _vehicleNo;
 
   GoogleMapController? _mapController;
   Position? _currentPosition;
@@ -38,6 +42,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Timer? _pollingTimer; // Timer for polling every minute
   Timer? _permissionCheckTimer;
   Timer? _retrySyncTimer;
+  Timer? _dashboardTimer; // Timer for dashboard API calls every 5 minutes
   bool _isTracking = false;
   bool _hasLocationPermission = false;
   bool _isLocationServiceEnabled = false;
@@ -46,20 +51,39 @@ class _DashboardScreenState extends State<DashboardScreen> {
   DateTime? _lastSyncTime;
   int _pendingSyncCount = 0;
   int _totalPollingCount = 0; // Total pollings captured
-  int _pollingCounter = 0; // Counter for syncing every 10 pollings
   int _lastPollingBatchSize = 0;
 
-  // Event data (temporary - will come from API)
-  final String eventName = 'Cycle Rally 2025';
-  final DateTime eventStartDate = DateTime(2025, 3, 1, 8, 0);
-  final DateTime eventEndDate = DateTime(2025, 3, 1, 18, 0);
+  // Event data (will be updated from API)
+  String eventName = 'Cycle Rally 2025';
+  DateTime? eventStartDate;
+  DateTime? eventEndDate;
+
+  // Markers for ambulance and bicycle users
+  Set<Marker> _vehicleMarkers = {};
+  BitmapDescriptor? _ambulanceIcon;
+  BitmapDescriptor? _bicycleIcon;
+
+  // List of ambulances from dashboard API
+  List<Map<String, dynamic>> _ambulanceList = [];
 
   @override
   void initState() {
     super.initState();
-    _initializeDeviceAndUser();
-    _loadPendingSyncCount();
-    _initializeLocationSequentially();
+    // Initialize asynchronously with error handling
+    _initializeDeviceAndUser().catchError((error) {
+      debugPrint('Error initializing device and user: $error');
+    });
+    _loadPendingSyncCount().catchError((error) {
+      debugPrint('Error loading pending sync count: $error');
+    });
+    _initializeLocationSequentially().catchError((error) {
+      debugPrint('Error initializing location: $error');
+      if (mounted) {
+        setState(() {
+          _isLoadingLocation = false;
+        });
+      }
+    });
 
     // Check permission status periodically
     _permissionCheckTimer = Timer.periodic(const Duration(seconds: 5), (
@@ -106,17 +130,242 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _initializeDeviceAndUser() async {
-    // Get device ID
-    _deviceId = await _deviceService.getDeviceId();
+    try {
+      // Get device ID
+      _deviceId = await _deviceService.getDeviceId();
 
-    // Get user ID from preferences or from widget.userData
-    if (widget.userData != null && widget.userData!['userid'] != null) {
-      _userId = widget.userData!['userid']?.toString();
-    } else {
-      _userId = await _userPreferencesService.getUserId();
+      // Get user ID from preferences or from widget.userData
+      if (widget.userData != null && widget.userData!['userid'] != null) {
+        _userId = widget.userData!['userid']?.toString();
+      } else {
+        _userId = await _userPreferencesService.getUserId();
+      }
+
+      // Get vehicle number
+      _vehicleNo = await _userPreferencesService.getVehicleNo();
+
+      debugPrint(
+        'Device ID: $_deviceId, User ID: $_userId, Vehicle No: $_vehicleNo',
+      );
+
+      // Initialize dashboard isolate service
+      await _dashboardIsolateService.initialize();
+
+      // Load custom icons
+      await _loadCustomIcons();
+
+      // Fetch dashboard data immediately
+      _fetchDashboardData();
+
+      // Set up timer to fetch dashboard data every 5 minutes
+      _dashboardTimer = Timer.periodic(const Duration(minutes: 5), (timer) {
+        _fetchDashboardData();
+      });
+    } catch (e) {
+      debugPrint('Error in _initializeDeviceAndUser: $e');
+      // Set defaults to prevent null errors
+      _deviceId ??= 'unknown-device';
+      _userId ??= 'unknown-user';
+      _vehicleNo ??= 'NA';
+    }
+  }
+
+  /// Load custom icons for ambulance and bicycle markers
+  Future<void> _loadCustomIcons() async {
+    try {
+      _ambulanceIcon = await BitmapDescriptor.fromAssetImage(
+        const ImageConfiguration(size: Size(48, 48)),
+        'assets/images/ic_ambulance.png',
+      );
+      _bicycleIcon = await BitmapDescriptor.fromAssetImage(
+        const ImageConfiguration(size: Size(48, 48)),
+        'assets/images/ic_bycycle.png',
+      );
+    } catch (e) {
+      debugPrint('Error loading custom icons: $e');
+      // Fallback to default markers if icons fail to load
+    }
+  }
+
+  /// Fetch dashboard data from API
+  Future<void> _fetchDashboardData() async {
+    if (_userId == null || _vehicleNo == null) {
+      debugPrint('Cannot fetch dashboard data: userId or vehicleNo is null');
+      return;
     }
 
-    debugPrint('Device ID: $_deviceId, User ID: $_userId');
+    try {
+      final result = await _dashboardIsolateService.fetchDashboardData(
+        userId: _userId!,
+        vehicleNo: _vehicleNo!,
+      );
+
+      if (mounted && result['success'] == true) {
+        final data = result['data'] as Map<String, dynamic>;
+
+        // Update event dates
+        if (data['event_Start_Date'] != null) {
+          try {
+            final startDateStr = data['event_Start_Date'] as String;
+            eventStartDate = DateTime.parse(startDateStr);
+          } catch (e) {
+            debugPrint('Error parsing event start date: $e');
+          }
+        }
+
+        if (data['event_End_Date'] != null) {
+          try {
+            final endDateStr = data['event_End_Date'] as String;
+            eventEndDate = DateTime.parse(endDateStr);
+          } catch (e) {
+            debugPrint('Error parsing event end date: $e');
+          }
+        }
+
+        // Parse vehicle data and create markers
+        if (data['data'] != null && data['data'] is List) {
+          final vehicles = data['data'] as List<dynamic>;
+          _updateVehicleMarkers(vehicles);
+
+          // Extract ambulance list
+          _updateAmbulanceList(vehicles);
+        }
+
+        if (mounted) {
+          setState(() {
+            // State updated, markers will be rebuilt
+          });
+        }
+      } else {
+        debugPrint('Dashboard API call failed: ${result['error']}');
+      }
+    } catch (e) {
+      debugPrint('Error fetching dashboard data: $e');
+    }
+  }
+
+  /// Update ambulance list from dashboard data
+  void _updateAmbulanceList(List<dynamic> vehicles) {
+    final List<Map<String, dynamic>> ambulanceList = [];
+
+    for (var vehicle in vehicles) {
+      try {
+        final vehicleNo = vehicle['vehicleNo'] as String? ?? '';
+        final driverMobileNo = vehicle['driverMobileNo'] as String? ?? '';
+
+        // Only include ambulances (vehicles starting with "Ambulance")
+        if (vehicleNo.toLowerCase().startsWith('ambulance') &&
+            driverMobileNo.isNotEmpty) {
+          ambulanceList.add({
+            'vehicleNo': vehicleNo,
+            'driverMobileNo': driverMobileNo,
+          });
+        }
+      } catch (e) {
+        debugPrint('Error parsing ambulance data: $e');
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _ambulanceList = ambulanceList;
+      });
+    }
+  }
+
+  /// Update vehicle markers on the map
+  void _updateVehicleMarkers(List<dynamic> vehicles) {
+    final Set<Marker> newMarkers = {};
+
+    for (var vehicle in vehicles) {
+      try {
+        final vehicleNo = vehicle['vehicleNo'] as String? ?? '';
+        final lat = vehicle['lat'] as double?;
+        final lon = vehicle['lon'] as double?;
+        final location = vehicle['location'] as String? ?? '';
+        final speed = vehicle['speed'] as int? ?? 0;
+
+        if (lat == null || lon == null) {
+          continue; // Skip invalid coordinates
+        }
+
+        // Determine icon based on vehicle number
+        BitmapDescriptor icon;
+        if (vehicleNo.toLowerCase().startsWith('ambulance')) {
+          icon =
+              _ambulanceIcon ??
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
+        } else {
+          icon =
+              _bicycleIcon ??
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen);
+        }
+
+        // Create marker
+        final marker = Marker(
+          markerId: MarkerId(vehicleNo),
+          position: LatLng(lat, lon),
+          icon: icon,
+          infoWindow: InfoWindow(
+            title: vehicleNo,
+            snippet: location.isNotEmpty
+                ? '$location\nSpeed: $speed km/h'
+                : 'Speed: $speed km/h',
+          ),
+        );
+
+        newMarkers.add(marker);
+      } catch (e) {
+        debugPrint('Error creating marker for vehicle: $e');
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _vehicleMarkers = newMarkers;
+      });
+
+      // Fit all markers in bounds after updating markers
+      _fitMarkersInBounds();
+    }
+  }
+
+  /// Fit all markers in the map bounds
+  void _fitMarkersInBounds() {
+    if (_mapController == null || _vehicleMarkers.isEmpty) {
+      return;
+    }
+
+    try {
+      // Calculate bounds from all markers
+      double? minLat, maxLat, minLng, maxLng;
+
+      for (var marker in _vehicleMarkers) {
+        final lat = marker.position.latitude;
+        final lng = marker.position.longitude;
+
+        minLat = minLat == null ? lat : (minLat < lat ? minLat : lat);
+        maxLat = maxLat == null ? lat : (maxLat > lat ? maxLat : lat);
+        minLng = minLng == null ? lng : (minLng < lng ? minLng : lng);
+        maxLng = maxLng == null ? lng : (maxLng > lng ? maxLng : lng);
+      }
+
+      if (minLat != null &&
+          maxLat != null &&
+          minLng != null &&
+          maxLng != null) {
+        final bounds = LatLngBounds(
+          southwest: LatLng(minLat, minLng),
+          northeast: LatLng(maxLat, maxLng),
+        );
+
+        _mapController!.animateCamera(
+          CameraUpdate.newLatLngBounds(bounds, 100.0), // 100px padding
+        );
+      }
+    } catch (e) {
+      debugPrint('Error fitting markers in bounds: $e');
+    }
   }
 
   Future<void> _initializeLocationSequentially() async {
@@ -426,12 +675,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
     setState(() {
       _isTracking = true;
       _hasLocationPermission = true;
-      _pollingCounter = 0; // Reset polling counter
     });
 
     try {
-      // Poll location every minute
-      _pollingTimer = Timer.periodic(const Duration(minutes: 1), (timer) async {
+      // Poll location every 10 minutes and send immediately
+      _pollingTimer = Timer.periodic(const Duration(minutes: 10), (
+        timer,
+      ) async {
         if (!_isTracking) {
           timer.cancel();
           return;
@@ -451,17 +701,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
             // Save location to database with all required fields
             await _saveLocation(position);
 
-            // Increment polling counter
+            // Increment polling count
             setState(() {
-              _pollingCounter++;
               _totalPollingCount++;
             });
 
-            // Sync to server after every 10 pollings
-            if (_pollingCounter >= 10) {
-              _pollingCounter = 0; // Reset counter
-              await _syncLocations();
-            }
+            // Send immediately to server after each poll (every 10 minutes)
+            await _sendLocationImmediately(position);
           }
         } catch (e) {
           debugPrint('Error polling location: $e');
@@ -482,7 +728,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _retrySyncUnsyncedData();
       });
 
-      // Get initial location immediately
+      // Get initial location immediately and send
       try {
         final position = await _locationService.getCurrentLocation();
         if (mounted) {
@@ -493,9 +739,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _updateMapCamera();
           await _saveLocation(position);
           setState(() {
-            _pollingCounter++;
             _totalPollingCount++;
           });
+          // Send initial location immediately
+          await _sendLocationImmediately(position);
         }
       } catch (e) {
         debugPrint('Error getting initial location: $e');
@@ -515,7 +762,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _retrySyncTimer?.cancel();
     setState(() {
       _isTracking = false;
-      _pollingCounter = 0; // Reset polling counter when stopped
     });
   }
 
@@ -585,39 +831,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  Future<void> _syncLocations() async {
-    if (!_isTracking) return;
-
-    try {
-      // Get count of locations to be synced before sync
-      final unsyncedBefore = await _databaseService.getUnsyncedLocations();
-      final countToSync = unsyncedBefore.length;
-
-      if (countToSync == 0) {
-        // No data to sync
-        return;
-      }
-
-      // Sync with retry logic - will retry until all data is sent
-      final countSynced = await _trackingService
-          .syncPendingLocationsWithRetry();
-      await _loadPendingSyncCount();
-
-      // Only update sync time if data was actually sent successfully
-      if (mounted && countSynced > 0) {
-        setState(() {
-          _lastSyncTime = DateTime.now();
-          _lastPollingBatchSize = countSynced;
-        });
-      }
-    } catch (e) {
-      // Error handled in tracking service
-      if (mounted) {
-        debugPrint('Sync error: $e');
-      }
-    }
-  }
-
   Future<void> _loadPendingSyncCount() async {
     try {
       final unsynced = await _databaseService.getUnsyncedLocations();
@@ -633,37 +846,245 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _handleSOS() async {
-    if (_currentPosition == null) {
+    // Show loading indicator
+    if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Location not available'),
-          backgroundColor: Colors.red,
+          content: Row(
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              ),
+              SizedBox(width: 16),
+              Text('Getting location and sending SOS...'),
+            ],
+          ),
+          duration: Duration(seconds: 2),
+          backgroundColor: Colors.orange,
         ),
       );
-      return;
     }
 
     try {
-      await _apiService.post('/api/SOS/Emergency', {
-        'latitude': _currentPosition!.latitude,
-        'longitude': _currentPosition!.longitude,
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-        'userid': widget.userData?['userid'],
-      });
+      // Get fresh location
+      final position = await _locationService.getCurrentLocation();
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('SOS signal sent successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        setState(() {
+          _currentPosition = position;
+          _lastUpdateTime = DateTime.now();
+        });
+        _updateMapCamera();
+
+        // Save location to database
+        await _saveLocation(position);
+
+        // Send immediately to tracking API
+        await _sendLocationImmediately(position);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('SOS signal sent successfully!'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
+            ),
+          );
+
+          // Show ambulance selection dialog after sending SOS
+          Future.delayed(const Duration(milliseconds: 500), () {
+            _showAmbulanceSelectionDialog();
+          });
+        }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('SOS failed: $e'),
+            content: Text('SOS failed: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      debugPrint('SOS error: $e');
+    }
+  }
+
+  /// Show ambulance selection dialog
+  void _showAmbulanceSelectionDialog() {
+    if (_ambulanceList.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No ambulances available at the moment'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        title: const Row(
+          children: [
+            Icon(Icons.local_hospital, color: Colors.red, size: 28),
+            SizedBox(width: 8),
+            Text(
+              'Select Ambulance',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.deepPurple,
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: _ambulanceList.length,
+            itemBuilder: (context, index) {
+              final ambulance = _ambulanceList[index];
+              final vehicleNo = ambulance['vehicleNo'] as String;
+              final driverMobileNo = ambulance['driverMobileNo'] as String;
+
+              return Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                elevation: 2,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: InkWell(
+                  onTap: () => _callAmbulance(driverMobileNo),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.red.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(
+                            Icons.local_hospital,
+                            color: Colors.red,
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                vehicleNo,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.phone,
+                                    size: 16,
+                                    color: Colors.green,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    driverMobileNo,
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      color: Colors.green,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(
+                          Icons.arrow_forward_ios,
+                          size: 16,
+                          color: Colors.grey,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Colors.grey, fontSize: 16),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Call ambulance - copy number and open dial pad
+  Future<void> _callAmbulance(String phoneNumber) async {
+    try {
+      // Copy phone number to clipboard
+      await Clipboard.setData(ClipboardData(text: phoneNumber));
+
+      // Open dial pad
+      final Uri phoneUri = Uri(scheme: 'tel', path: phoneNumber);
+      if (await canLaunchUrl(phoneUri)) {
+        await launchUrl(phoneUri);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Cannot open dial pad. Phone number copied: $phoneNumber',
+              ),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      }
+
+      // Close dialog
+      if (mounted) {
+        Navigator.pop(context);
+      }
+
+      // Show success message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Phone number copied: $phoneNumber'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error calling ambulance: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
             backgroundColor: Colors.red,
           ),
         );
@@ -671,8 +1092,75 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  /// Send location immediately to tracking API
+  Future<void> _sendLocationImmediately(Position position) async {
+    try {
+      // Ensure device_id and user_id are available
+      _deviceId ??= await _deviceService.getDeviceId();
+      final userId =
+          await _userPreferencesService.getUserId() ??
+          widget.userData?['userid']?.toString();
+
+      // Get vehicle number from preferences or userData
+      final vehicleNo =
+          await _userPreferencesService.getVehicleNo() ??
+          widget.userData?['vehicleno']?.toString();
+
+      // Get battery level
+      final batteryLevel = await _deviceService.getBatteryLevel();
+
+      // Prepare location data in the same format as tracking API
+      final locationData = {
+        'device_id': userId ?? 'NA', //_deviceId ?? 'unknown-device',
+        'user_id': userId ?? 'NA',
+        'Vehicle_No': vehicleNo ?? 'NA',
+        'lat': position.latitude,
+        'lng': position.longitude,
+        'speed': position.speed.round(),
+        'accuracy': position.accuracy.round(),
+        'battery': batteryLevel,
+        'timestamp': DateTime.now().toUtc().toIso8601String(),
+      };
+
+      // Send immediately to tracking API
+      await _trackingService.sendSingleLocation(locationData);
+
+      // Update sync time
+      if (mounted) {
+        setState(() {
+          _lastSyncTime = DateTime.now();
+        });
+      }
+    } catch (e) {
+      debugPrint('Error sending location immediately: $e');
+      // Don't throw - let it fail silently and be synced later
+    }
+  }
+
   String _formatDateTime(DateTime dateTime) {
     return '${dateTime.day}/${dateTime.month}/${dateTime.year} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+  }
+
+  /// Format date as DD-MMM-YYYY (e.g., "13-Dec-2025")
+  String _formatEventDate(DateTime dateTime) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final day = dateTime.day.toString().padLeft(2, '0');
+    final month = months[dateTime.month - 1];
+    final year = dateTime.year.toString();
+    return '$day-$month-$year';
   }
 
   String _formatLastUpdate() {
@@ -709,6 +1197,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _pollingTimer?.cancel();
     _permissionCheckTimer?.cancel();
     _retrySyncTimer?.cancel();
+    _dashboardTimer?.cancel();
+    _dashboardIsolateService.dispose();
     _mapController?.dispose();
     super.dispose();
   }
@@ -883,7 +1373,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                         child: _buildDateTimeInfo(
                                           icon: Icons.play_arrow,
                                           label: 'Start',
-                                          dateTime: eventStartDate,
+                                          dateTime:
+                                              eventStartDate ??
+                                              DateTime(2025, 3, 1, 8, 0),
                                         ),
                                       ),
                                       const SizedBox(width: 12),
@@ -891,7 +1383,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                         child: _buildDateTimeInfo(
                                           icon: Icons.stop,
                                           label: 'End',
-                                          dateTime: eventEndDate,
+                                          dateTime:
+                                              eventEndDate ??
+                                              DateTime(2025, 3, 1, 18, 0),
                                         ),
                                       ),
                                     ],
@@ -977,32 +1471,55 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     ),
                                   ),
                                 )
-                              : GoogleMap(
-                                  initialCameraPosition: CameraPosition(
-                                    target: LatLng(
-                                      _currentPosition!.latitude,
-                                      _currentPosition!.longitude,
-                                    ),
-                                    zoom: 15,
-                                  ),
-                                  onMapCreated: (controller) {
-                                    _mapController = controller;
-                                  },
-                                  myLocationEnabled: true,
-                                  myLocationButtonEnabled: false,
-                                  markers: {
-                                    Marker(
-                                      markerId: const MarkerId('user_location'),
-                                      position: LatLng(
-                                        _currentPosition!.latitude,
-                                        _currentPosition!.longitude,
+                              : Stack(
+                                  children: [
+                                    GoogleMap(
+                                      initialCameraPosition: CameraPosition(
+                                        target: LatLng(
+                                          _currentPosition!.latitude,
+                                          _currentPosition!.longitude,
+                                        ),
+                                        zoom: 15,
                                       ),
-                                      icon:
-                                          BitmapDescriptor.defaultMarkerWithHue(
-                                            BitmapDescriptor.hueBlue,
-                                          ),
+                                      onMapCreated: (controller) {
+                                        _mapController = controller;
+                                        // Fit markers in bounds after map is created
+                                        Future.delayed(
+                                          const Duration(milliseconds: 500),
+                                          () {
+                                            _fitMarkersInBounds();
+                                          },
+                                        );
+                                      },
+                                      myLocationEnabled: false,
+                                      myLocationButtonEnabled: false,
+                                      markers: _vehicleMarkers,
                                     ),
-                                  },
+                                    // Fullscreen button overlay
+                                    Positioned(
+                                      top: 8,
+                                      right: 8,
+                                      child: Material(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(8),
+                                        elevation: 4,
+                                        child: InkWell(
+                                          onTap: _showFullscreenMap,
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                          child: Container(
+                                            padding: const EdgeInsets.all(8),
+                                            child: const Icon(
+                                              Icons.fullscreen,
+                                              color: Colors.deepPurple,
+                                              size: 24,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                         ),
                       ),
@@ -1130,19 +1647,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                         fontWeight: FontWeight.w500,
                                       ),
                                     ),
-                                    if (_isTracking && _pollingCounter > 0) ...[
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        '($_pollingCounter/10)',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: Colors.blue.withValues(
-                                            alpha: 0.9,
-                                          ),
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ],
                                     if (_lastPollingBatchSize > 0) ...[
                                       const SizedBox(width: 4),
                                       Text(
@@ -1249,7 +1753,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       const SizedBox(height: 4),
                                       Text(
                                         _isTracking
-                                            ? 'Location captured continuously, synced every 10 min'
+                                            ? 'Location captured and sent every 10 minutes'
                                             : (!_isLocationServiceEnabled)
                                             ? 'Tap to open device settings'
                                             : _hasLocationPermission
@@ -1420,7 +1924,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           const SizedBox(height: 4),
           Text(
-            _formatDateTime(dateTime),
+            _formatEventDate(dateTime),
             style: const TextStyle(
               fontSize: 13,
               color: Colors.white,
@@ -1430,5 +1934,150 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ],
       ),
     );
+  }
+
+  /// Show fullscreen map
+  void _showFullscreenMap() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => _FullscreenMapScreen(
+          vehicleMarkers: _vehicleMarkers,
+          currentPosition: _currentPosition,
+          ambulanceIcon: _ambulanceIcon,
+          bicycleIcon: _bicycleIcon,
+        ),
+      ),
+    );
+  }
+}
+
+/// Fullscreen map screen
+class _FullscreenMapScreen extends StatefulWidget {
+  final Set<Marker> vehicleMarkers;
+  final Position? currentPosition;
+  final BitmapDescriptor? ambulanceIcon;
+  final BitmapDescriptor? bicycleIcon;
+
+  const _FullscreenMapScreen({
+    required this.vehicleMarkers,
+    this.currentPosition,
+    this.ambulanceIcon,
+    this.bicycleIcon,
+  });
+
+  @override
+  State<_FullscreenMapScreen> createState() => _FullscreenMapScreenState();
+}
+
+class _FullscreenMapScreenState extends State<_FullscreenMapScreen> {
+  GoogleMapController? _fullscreenMapController;
+
+  @override
+  void initState() {
+    super.initState();
+    // Fit markers in bounds after a short delay
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        _fitMarkersInBounds();
+      });
+    });
+  }
+
+  void _fitMarkersInBounds() {
+    if (_fullscreenMapController == null || widget.vehicleMarkers.isEmpty) {
+      return;
+    }
+
+    try {
+      // Calculate bounds from all markers
+      double? minLat, maxLat, minLng, maxLng;
+
+      for (var marker in widget.vehicleMarkers) {
+        final lat = marker.position.latitude;
+        final lng = marker.position.longitude;
+
+        minLat = minLat == null ? lat : (minLat < lat ? minLat : lat);
+        maxLat = maxLat == null ? lat : (maxLat > lat ? maxLat : lat);
+        minLng = minLng == null ? lng : (minLng < lng ? minLng : lng);
+        maxLng = maxLng == null ? lng : (maxLng > lng ? maxLng : lng);
+      }
+
+      if (minLat != null &&
+          maxLat != null &&
+          minLng != null &&
+          maxLng != null) {
+        final bounds = LatLngBounds(
+          southwest: LatLng(minLat, minLng),
+          northeast: LatLng(maxLat, maxLng),
+        );
+
+        _fullscreenMapController!.animateCamera(
+          CameraUpdate.newLatLngBounds(bounds, 50.0), // 50px padding
+        );
+      }
+    } catch (e) {
+      debugPrint('Error fitting markers in bounds: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Stack(
+        children: [
+          GoogleMap(
+            initialCameraPosition: CameraPosition(
+              target: widget.currentPosition != null
+                  ? LatLng(
+                      widget.currentPosition!.latitude,
+                      widget.currentPosition!.longitude,
+                    )
+                  : const LatLng(0, 0),
+              zoom: 15,
+            ),
+            onMapCreated: (controller) {
+              _fullscreenMapController = controller;
+              _fitMarkersInBounds();
+            },
+            myLocationEnabled: false,
+            myLocationButtonEnabled: false,
+            markers: widget.vehicleMarkers,
+          ),
+          // Close button
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Align(
+                alignment: Alignment.topRight,
+                child: Material(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                  elevation: 4,
+                  child: InkWell(
+                    onTap: () => Navigator.pop(context),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      child: const Icon(
+                        Icons.fullscreen_exit,
+                        color: Colors.deepPurple,
+                        size: 24,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _fullscreenMapController?.dispose();
+    super.dispose();
   }
 }

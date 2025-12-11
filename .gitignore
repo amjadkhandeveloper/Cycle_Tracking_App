@@ -43,3 +43,19 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Environment variables and secrets
+.env
+.env.local
+.env.*.local
+local.properties
+**/local.properties
+*.keystore
+*.jks
+
+# iOS API Key config (auto-generated from local.properties)
+ios/Flutter/GoogleMapsAPIKey.xcconfig
+
+# API Keys and secrets (if stored in config files)
+**/config/secrets.dart
+**/secrets.dart

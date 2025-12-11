@@ -111,14 +111,27 @@ class _LoginScreenState extends State<LoginScreen>
               SnackBar(content: Text(message), backgroundColor: Colors.green),
             );
 
-            // Navigate to dashboard screen
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (context) =>
-                    DashboardScreen(userData: userDataForDashboard),
-              ),
-            );
+            // Navigate to dashboard screen with error handling
+            try {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) =>
+                      DashboardScreen(userData: userDataForDashboard),
+                ),
+              );
+            } catch (e) {
+              debugPrint('Error navigating to dashboard: $e');
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Error loading dashboard: ${e.toString()}'),
+                    backgroundColor: Colors.red,
+                    duration: const Duration(seconds: 5),
+                  ),
+                );
+              }
+            }
           } else {
             // Login failed
             ScaffoldMessenger.of(context).showSnackBar(

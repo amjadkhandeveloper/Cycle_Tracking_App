@@ -43,4 +43,7 @@ post_install do |installer|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
     end
   end
+  
+  # Load Google Maps API Key from local.properties
+  system("bash", "-c", "cd #{File.dirname(__FILE__)} && ./scripts/load_api_key.sh")
 end

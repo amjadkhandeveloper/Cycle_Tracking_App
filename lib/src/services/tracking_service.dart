@@ -44,7 +44,8 @@ class TrackingService {
         final locationDataList = locations.map((loc) {
           return {
             'id': loc['id'] as int,
-            'device_id': loc['device_id'] as String,
+            'device_id':
+                loc['user_id'] as String, // loc['device_id'] as String,
             'user_id': loc['user_id'] as String,
             'Vehicle_No': loc['vehicle_no'] as String? ?? '',
             'lat': loc['latitude'] as double,
