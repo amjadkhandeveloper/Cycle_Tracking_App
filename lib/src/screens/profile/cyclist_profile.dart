@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/database_service.dart';
 import '../../services/user_preferences_service.dart';
+import '../auth/login_screen.dart';
 
 class CyclistProfile extends StatefulWidget {
   final Map<String, dynamic>? userData;
@@ -95,6 +96,55 @@ class _CyclistProfileState extends State<CyclistProfile> {
             backgroundColor: Colors.red,
           ),
         );
+      }
+    }
+  }
+
+  /// Handle logout - clear user data and navigate to login
+  Future<void> _handleLogout() async {
+    // Show confirmation dialog
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Logout'),
+          content: const Text('Are you sure you want to logout?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Logout', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldLogout == true) {
+      try {
+        // Clear user data from SharedPreferences
+        await _userPreferencesService.clearUserData();
+
+        // Navigate to login screen and clear navigation stack
+        if (mounted) {
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (context) => const LoginScreen()),
+            (route) => false, // Remove all previous routes
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error during logout: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       }
     }
   }
@@ -201,6 +251,14 @@ class _CyclistProfileState extends State<CyclistProfile> {
                                     ),
                                     onPressed: _loadStatistics,
                                   ),
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.logout,
+                                      color: Colors.white,
+                                    ),
+                                    onPressed: _handleLogout,
+                                    tooltip: 'Logout',
+                                  ),
                                 ],
                               ),
                             ),
@@ -223,8 +281,8 @@ class _CyclistProfileState extends State<CyclistProfile> {
                                 children: [
                                   // Profile Photo
                                   Container(
-                                    width: 120,
-                                    height: 120,
+                                    width: 60,
+                                    height: 60,
                                     decoration: BoxDecoration(
                                       shape: BoxShape.circle,
                                       border: Border.all(

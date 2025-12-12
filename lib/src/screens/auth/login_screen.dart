@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/auth_service.dart';
 import '../../services/user_preferences_service.dart';
+import '../../services/connectivity_service.dart';
 import '../home/dashboard_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -23,6 +24,7 @@ class _LoginScreenState extends State<LoginScreen>
   final _passwordController = TextEditingController();
   final _authService = AuthService();
   final _userPreferencesService = UserPreferencesService();
+  final _connectivityService = ConnectivityService();
   bool _obscurePassword = true;
   bool _isLoading = false;
 
@@ -107,6 +109,23 @@ class _LoginScreenState extends State<LoginScreen>
 
   Future<void> _handleLogin() async {
     if (_formKey.currentState!.validate()) {
+      // Check internet connection before login
+      final hasInternet = await _connectivityService.hasInternetConnection();
+      if (!hasInternet) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'No internet connection. Please check your network settings and try again.',
+              ),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+        return;
+      }
+
       setState(() {
         _isLoading = true;
       });
@@ -279,9 +298,9 @@ class _LoginScreenState extends State<LoginScreen>
                               const SizedBox(height: 24),
                               Center(
                                 child: Text(
-                                  "Swadeshi Jagaran Cyclothon",
+                                  "Y4N Swadeshi Jagaran Cyclothon",
                                   style: TextStyle(
-                                    fontSize: 18,
+                                    fontSize: 16,
                                     fontWeight: FontWeight.bold,
                                     color: Colors.white,
                                     letterSpacing: 1,

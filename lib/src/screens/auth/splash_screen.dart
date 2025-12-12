@@ -253,9 +253,9 @@ class _SplashScreenState extends State<SplashScreen>
                   ),
                 ),
                 Text(
-                  "Swadeshi Jagaran Cyclothon",
+                  "Y4N Swadeshi Jagaran Cyclothon",
                   style: TextStyle(
-                    fontSize: 20,
+                    fontSize: 16,
                     fontWeight: FontWeight.w300,
                     color: Colors.white.withValues(alpha: 0.9),
                     letterSpacing: 3,

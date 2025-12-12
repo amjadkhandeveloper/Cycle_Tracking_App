@@ -10,6 +10,7 @@ import '../../services/database_service.dart';
 import '../../services/device_service.dart';
 import '../../services/user_preferences_service.dart';
 import '../../services/dashboard_isolate_service.dart';
+import '../../services/connectivity_service.dart';
 import 'history_screen.dart';
 import '../profile/cyclist_profile.dart';
 
@@ -31,6 +32,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       UserPreferencesService();
   final DashboardIsolateService _dashboardIsolateService =
       DashboardIsolateService();
+  final ConnectivityService _connectivityService = ConnectivityService();
 
   String? _deviceId;
   String? _userId;
@@ -50,7 +52,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   DateTime? _lastUpdateTime;
 
   // Event data (will be updated from API)
-  String eventName = 'Swadeshi Jagaran Cyclothon';
+  String eventName = 'Y4N Swadeshi Jagaran Cyclothon';
   DateTime? eventStartDate;
   DateTime? eventEndDate;
 
@@ -202,6 +204,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return;
     }
 
+    // Check internet connection before fetching dashboard data
+    final hasInternet = await _connectivityService.hasInternetConnection();
+    if (!hasInternet) {
+      debugPrint('No internet connection. Skipping dashboard data fetch.');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No internet connection. Dashboard data will update when connection is restored.',
+            ),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+      return;
+    }
+
     try {
       final result = await _dashboardIsolateService.fetchDashboardData(
         userId: _userId!,
@@ -282,35 +302,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   /// Update user marker on the map
+  /// Note: This is no longer used as vehicleStatus 3 from API provides the user marker
   void _updateUserMarker() {
-    if (_currentPosition == null || _logoIcon == null) {
-      return;
-    }
-
-    final userMarker = Marker(
-      markerId: const MarkerId('user_current_position'),
-      position: LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
-      icon: _logoIcon!,
-      infoWindow: const InfoWindow(
-        title: 'Your Location',
-        snippet: 'Active user',
-      ),
-    );
-
-    // Update markers set
-    final updatedMarkers = Set<Marker>.from(_vehicleMarkers);
-    // Remove old user marker if exists
-    updatedMarkers.removeWhere(
-      (marker) => marker.markerId.value == 'user_current_position',
-    );
-    // Add new user marker
-    updatedMarkers.add(userMarker);
-
-    if (mounted) {
-      setState(() {
-        _vehicleMarkers = updatedMarkers;
-      });
-    }
+    // Disabled - vehicleStatus 3 marker from API is used instead
+    // This prevents duplicate markers
   }
 
   /// Update vehicle markers on the map
@@ -370,17 +365,81 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 );
         }
 
-        // Create marker
+        // Create marker with detailed info window
+        String infoTitle = vehicleNo;
+        String infoSnippet = '';
+
+        // Build detailed snippet based on vehicle status
+        if (vehicleStatus == 3) {
+          // Active user (logged-in user's vehicle) - show vehicle number as title
+          // Show vehicle number as title (this is the logged-in user's vehicle number)
+          infoTitle = vehicleNo.isNotEmpty ? vehicleNo : 'Active User';
+          final List<String> details = [];
+
+          // Add address/location from API
+          // Check for address field first, then fallback to location
+          final address = vehicle['address'] as String? ?? '';
+          if (address.isNotEmpty) {
+            details.add('Address: $address');
+          } else if (location.isNotEmpty) {
+            details.add('Address: $location');
+          }
+
+          if (speed > 0) {
+            details.add('Speed: $speed km/h');
+          }
+
+          // Check for additional fields that might be available from API
+          final driverMobileNo = vehicle['driverMobileNo'] as String? ?? '';
+          if (driverMobileNo.isNotEmpty) {
+            details.add('Mobile: $driverMobileNo');
+          }
+
+          // Add user ID if available
+          final userId = vehicle['userId'] as String? ?? '';
+          if (userId.isNotEmpty) {
+            details.add('User ID: $userId');
+          }
+
+          // Add timestamp if available
+          final timestamp = vehicle['timestamp'] as String? ?? '';
+          if (timestamp.isNotEmpty) {
+            try {
+              final dateTime = DateTime.parse(timestamp);
+              final timeAgo = DateTime.now().difference(dateTime);
+              if (timeAgo.inMinutes < 1) {
+                details.add('Updated: Just now');
+              } else if (timeAgo.inMinutes < 60) {
+                details.add('Updated: ${timeAgo.inMinutes} min ago');
+              } else {
+                details.add('Updated: ${timeAgo.inHours} hr ago');
+              }
+            } catch (e) {
+              // Ignore timestamp parsing errors
+            }
+          }
+
+          infoSnippet = details.isNotEmpty ? details.join('\n') : 'Active User';
+        } else {
+          // Other vehicle types
+          infoTitle = vehicleNo;
+          final List<String> details = [];
+
+          if (location.isNotEmpty) {
+            details.add(location);
+          }
+          if (speed > 0) {
+            details.add('Speed: $speed km/h');
+          }
+
+          infoSnippet = details.isNotEmpty ? details.join('\n') : 'Vehicle';
+        }
+
         final marker = Marker(
           markerId: MarkerId(vehicleNo),
           position: LatLng(lat, lon),
           icon: icon,
-          infoWindow: InfoWindow(
-            title: vehicleNo,
-            snippet: location.isNotEmpty
-                ? '$location\nSpeed: $speed km/h'
-                : 'Speed: $speed km/h',
-          ),
+          infoWindow: InfoWindow(title: infoTitle, snippet: infoSnippet),
         );
 
         newMarkers.add(marker);
@@ -389,27 +448,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     }
 
-    // Add user's current position as a marker with vehicleStatus 3 icon (ic_logo)
-    if (_currentPosition != null && _logoIcon != null) {
-      final userMarker = Marker(
-        markerId: const MarkerId('user_current_position'),
-        position: LatLng(
-          _currentPosition!.latitude,
-          _currentPosition!.longitude,
-        ),
-        icon: _logoIcon!,
-        infoWindow: const InfoWindow(
-          title: 'Your Location',
-          snippet: 'Active user',
-        ),
-      );
-      newMarkers.add(userMarker);
-    }
+    // Note: User location marker with vehicleStatus 3 is already added from API data above
+    // No need to add a separate marker as the API provides vehicleStatus 3 data
 
     if (mounted) {
       setState(() {
         _vehicleMarkers = newMarkers;
       });
+      // Fit all markers in bounds after updating
+      _updateMapCamera();
     }
   }
 
@@ -700,7 +747,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _updateMapCamera() {
-    if (_mapController != null && _currentPosition != null) {
+    if (_mapController == null) return;
+
+    // If there are markers, fit all markers in bounds
+    if (_vehicleMarkers.isNotEmpty) {
+      _fitMarkersInBounds();
+    } else if (_currentPosition != null) {
+      // If no markers but user position available, focus on user
       _mapController!.animateCamera(
         CameraUpdate.newLatLngZoom(
           LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
@@ -710,17 +763,52 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  /// Zoom in on the map
-  void _zoomIn() {
-    if (_mapController != null) {
-      _mapController!.animateCamera(CameraUpdate.zoomIn());
+  /// Fit all markers in the map bounds
+  void _fitMarkersInBounds() {
+    if (_mapController == null || _vehicleMarkers.isEmpty) {
+      return;
     }
-  }
 
-  /// Zoom out on the map
-  void _zoomOut() {
-    if (_mapController != null) {
-      _mapController!.animateCamera(CameraUpdate.zoomOut());
+    try {
+      // Calculate bounds from all markers
+      double? minLat, maxLat, minLng, maxLng;
+
+      for (var marker in _vehicleMarkers) {
+        final lat = marker.position.latitude;
+        final lng = marker.position.longitude;
+
+        if (minLat == null || lat < minLat) minLat = lat;
+        if (maxLat == null || lat > maxLat) maxLat = lat;
+        if (minLng == null || lng < minLng) minLng = lng;
+        if (maxLng == null || lng > maxLng) maxLng = lng;
+      }
+
+      // If we have valid bounds, fit them
+      if (minLat != null &&
+          maxLat != null &&
+          minLng != null &&
+          maxLng != null) {
+        final bounds = LatLngBounds(
+          southwest: LatLng(minLat, minLng),
+          northeast: LatLng(maxLat, maxLng),
+        );
+
+        // Add padding to bounds (in pixels)
+        _mapController!.animateCamera(
+          CameraUpdate.newLatLngBounds(bounds, 100.0),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error fitting markers in bounds: $e');
+      // Fallback to user position if bounds calculation fails
+      if (_currentPosition != null) {
+        _mapController!.animateCamera(
+          CameraUpdate.newLatLngZoom(
+            LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+            15.0,
+          ),
+        );
+      }
     }
   }
 
@@ -878,6 +966,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _handleSOS() async {
+    // Check internet connection before SOS
+    final hasInternet = await _connectivityService.hasInternetConnection();
+    if (!hasInternet) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No internet connection. Please check your network settings and try again.',
+            ),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+      return;
+    }
+
     // Show loading indicator
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1482,7 +1587,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                         child: Text(
                                           eventName,
                                           style: const TextStyle(
-                                            fontSize: 18,
+                                            fontSize: 14,
                                             color: Colors.white,
                                             fontWeight: FontWeight.bold,
                                           ),
@@ -1619,6 +1724,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       },
                                       myLocationEnabled: false,
                                       myLocationButtonEnabled: false,
+                                      zoomControlsEnabled: true,
                                       markers: _vehicleMarkers,
                                     ),
                                     // Fullscreen button overlay
@@ -1643,85 +1749,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                             ),
                                           ),
                                         ),
-                                      ),
-                                    ),
-                                    // Zoom controls overlay
-                                    Positioned(
-                                      top: 8,
-                                      right: 8,
-                                      child: Column(
-                                        children: [
-                                          const SizedBox(
-                                            height: 48,
-                                          ), // Space for fullscreen button
-                                          Material(
-                                            color: Colors.white,
-                                            borderRadius:
-                                                const BorderRadius.only(
-                                                  topLeft: Radius.circular(8),
-                                                  topRight: Radius.circular(8),
-                                                ),
-                                            elevation: 4,
-                                            child: InkWell(
-                                              onTap: _zoomIn,
-                                              borderRadius:
-                                                  const BorderRadius.only(
-                                                    topLeft: Radius.circular(8),
-                                                    topRight: Radius.circular(
-                                                      8,
-                                                    ),
-                                                  ),
-                                              child: Container(
-                                                padding: const EdgeInsets.all(
-                                                  8,
-                                                ),
-                                                child: const Icon(
-                                                  Icons.add,
-                                                  color: Colors.deepPurple,
-                                                  size: 24,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                          Container(
-                                            height: 1,
-                                            color: Colors.grey.shade300,
-                                          ),
-                                          Material(
-                                            color: Colors.white,
-                                            borderRadius:
-                                                const BorderRadius.only(
-                                                  bottomLeft: Radius.circular(
-                                                    8,
-                                                  ),
-                                                  bottomRight: Radius.circular(
-                                                    8,
-                                                  ),
-                                                ),
-                                            elevation: 4,
-                                            child: InkWell(
-                                              onTap: _zoomOut,
-                                              borderRadius:
-                                                  const BorderRadius.only(
-                                                    bottomLeft: Radius.circular(
-                                                      8,
-                                                    ),
-                                                    bottomRight:
-                                                        Radius.circular(8),
-                                                  ),
-                                              child: Container(
-                                                padding: const EdgeInsets.all(
-                                                  8,
-                                                ),
-                                                child: const Icon(
-                                                  Icons.remove,
-                                                  color: Colors.deepPurple,
-                                                  size: 24,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        ],
                                       ),
                                     ),
                                   ],
@@ -1901,6 +1928,93 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
 
+              // Help Line and Hotline
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16.0,
+                  vertical: 12.0,
+                ),
+                child: Column(
+                  children: [
+                    // Help Line
+                    GestureDetector(
+                      onTap: () => _callNumber('+919343778899'),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.2),
+                            width: 1,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.phone,
+                              color: Colors.white.withValues(alpha: 0.9),
+                              size: 18,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              "Help Line: +91-9343778899",
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.white.withValues(alpha: 0.9),
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    // Hotline
+                    GestureDetector(
+                      onTap: () => _callNumber('+919535997788'),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.2),
+                            width: 1,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.phone,
+                              color: Colors.white.withValues(alpha: 0.9),
+                              size: 18,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              "Hotline: +91-9535997788",
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.white.withValues(alpha: 0.9),
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
               // Fixed Footer - Powered by
               Container(
                 padding: const EdgeInsets.all(16.0),
@@ -1977,6 +2091,52 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
       ),
     );
+  }
+
+  /// Call number - copy to clipboard and open dial pad
+  Future<void> _callNumber(String phoneNumber) async {
+    try {
+      // Copy phone number to clipboard
+      await Clipboard.setData(ClipboardData(text: phoneNumber));
+
+      // Open dial pad
+      final Uri phoneUri = Uri(scheme: 'tel', path: phoneNumber);
+      if (await canLaunchUrl(phoneUri)) {
+        await launchUrl(phoneUri);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Cannot open dial pad. Phone number copied: $phoneNumber',
+              ),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      }
+
+      // Show success message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Phone number copied: $phoneNumber'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error calling number: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildDateTimeInfo({
@@ -2056,36 +2216,80 @@ class _FullscreenMapScreenState extends State<_FullscreenMapScreen> {
   GoogleMapController? _fullscreenMapController;
 
   void _focusOnUserPosition() {
-    if (_fullscreenMapController == null || widget.currentPosition == null) {
+    if (_fullscreenMapController == null) {
+      return;
+    }
+
+    // Fit all markers in bounds if available
+    if (widget.vehicleMarkers.isNotEmpty) {
+      _fitMarkersInBounds();
+    } else if (widget.currentPosition != null) {
+      // Fallback to user position if no markers
+      try {
+        _fullscreenMapController!.animateCamera(
+          CameraUpdate.newLatLngZoom(
+            LatLng(
+              widget.currentPosition!.latitude,
+              widget.currentPosition!.longitude,
+            ),
+            15.0, // Focus on user position with zoom level 15
+          ),
+        );
+      } catch (e) {
+        debugPrint('Error focusing on user position: $e');
+      }
+    }
+  }
+
+  /// Fit all markers in the fullscreen map bounds
+  void _fitMarkersInBounds() {
+    if (_fullscreenMapController == null || widget.vehicleMarkers.isEmpty) {
       return;
     }
 
     try {
-      _fullscreenMapController!.animateCamera(
-        CameraUpdate.newLatLngZoom(
-          LatLng(
-            widget.currentPosition!.latitude,
-            widget.currentPosition!.longitude,
-          ),
-          15.0, // Focus on user position with zoom level 15
-        ),
-      );
+      // Calculate bounds from all markers
+      double? minLat, maxLat, minLng, maxLng;
+
+      for (var marker in widget.vehicleMarkers) {
+        final lat = marker.position.latitude;
+        final lng = marker.position.longitude;
+
+        if (minLat == null || lat < minLat) minLat = lat;
+        if (maxLat == null || lat > maxLat) maxLat = lat;
+        if (minLng == null || lng < minLng) minLng = lng;
+        if (maxLng == null || lng > maxLng) maxLng = lng;
+      }
+
+      // If we have valid bounds, fit them
+      if (minLat != null &&
+          maxLat != null &&
+          minLng != null &&
+          maxLng != null) {
+        final bounds = LatLngBounds(
+          southwest: LatLng(minLat, minLng),
+          northeast: LatLng(maxLat, maxLng),
+        );
+
+        // Add padding to bounds (in pixels)
+        _fullscreenMapController!.animateCamera(
+          CameraUpdate.newLatLngBounds(bounds, 100.0),
+        );
+      }
     } catch (e) {
-      debugPrint('Error focusing on user position: $e');
-    }
-  }
-
-  /// Zoom in on the fullscreen map
-  void _zoomIn() {
-    if (_fullscreenMapController != null) {
-      _fullscreenMapController!.animateCamera(CameraUpdate.zoomIn());
-    }
-  }
-
-  /// Zoom out on the fullscreen map
-  void _zoomOut() {
-    if (_fullscreenMapController != null) {
-      _fullscreenMapController!.animateCamera(CameraUpdate.zoomOut());
+      debugPrint('Error fitting markers in bounds: $e');
+      // Fallback to user position if bounds calculation fails
+      if (widget.currentPosition != null) {
+        _fullscreenMapController!.animateCamera(
+          CameraUpdate.newLatLngZoom(
+            LatLng(
+              widget.currentPosition!.latitude,
+              widget.currentPosition!.longitude,
+            ),
+            15.0,
+          ),
+        );
+      }
     }
   }
 
@@ -2113,7 +2317,12 @@ class _FullscreenMapScreenState extends State<_FullscreenMapScreen> {
             },
             myLocationEnabled: false,
             myLocationButtonEnabled: false,
+            zoomControlsEnabled: true,
             markers: widget.vehicleMarkers,
+            // Add padding to ensure zoom controls are visible above system navigation bar
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).padding.bottom + 20,
+            ),
           ),
           // Close button
           SafeArea(
@@ -2137,67 +2346,6 @@ class _FullscreenMapScreenState extends State<_FullscreenMapScreen> {
                       ),
                     ),
                   ),
-                ),
-              ),
-            ),
-          ),
-          // Zoom controls overlay
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Align(
-                alignment: Alignment.topRight,
-                child: Column(
-                  children: [
-                    const SizedBox(height: 48), // Space for close button
-                    Material(
-                      color: Colors.white,
-                      borderRadius: const BorderRadius.only(
-                        topLeft: Radius.circular(8),
-                        topRight: Radius.circular(8),
-                      ),
-                      elevation: 4,
-                      child: InkWell(
-                        onTap: _zoomIn,
-                        borderRadius: const BorderRadius.only(
-                          topLeft: Radius.circular(8),
-                          topRight: Radius.circular(8),
-                        ),
-                        child: Container(
-                          padding: const EdgeInsets.all(8),
-                          child: const Icon(
-                            Icons.add,
-                            color: Colors.deepPurple,
-                            size: 24,
-                          ),
-                        ),
-                      ),
-                    ),
-                    Container(height: 1, color: Colors.grey.shade300),
-                    Material(
-                      color: Colors.white,
-                      borderRadius: const BorderRadius.only(
-                        bottomLeft: Radius.circular(8),
-                        bottomRight: Radius.circular(8),
-                      ),
-                      elevation: 4,
-                      child: InkWell(
-                        onTap: _zoomOut,
-                        borderRadius: const BorderRadius.only(
-                          bottomLeft: Radius.circular(8),
-                          bottomRight: Radius.circular(8),
-                        ),
-                        child: Container(
-                          padding: const EdgeInsets.all(8),
-                          child: const Icon(
-                            Icons.remove,
-                            color: Colors.deepPurple,
-                            size: 24,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
                 ),
               ),
             ),

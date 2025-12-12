@@ -2,12 +2,21 @@ import 'dart:convert';
 import 'dart:developer' as developer;
 import 'package:http/http.dart' as http;
 import '../config/env.dart';
+import 'connectivity_service.dart';
 
 class ApiService {
   final String baseUrl = Env.apiBaseUrl;
+  final ConnectivityService _connectivityService = ConnectivityService();
 
   // API service implementation
   Future<Map<String, dynamic>> get(String endpoint) async {
+    // Check internet connection before making API call
+    final hasInternet = await _connectivityService.hasInternetConnection();
+    if (!hasInternet) {
+      throw Exception(
+        'No internet connection. Please check your network settings.',
+      );
+    }
     final url = '$baseUrl$endpoint';
     try {
       final response = await http.get(
@@ -31,6 +40,14 @@ class ApiService {
     String endpoint,
     Map<String, dynamic> data,
   ) async {
+    // Check internet connection before making API call
+    final hasInternet = await _connectivityService.hasInternetConnection();
+    if (!hasInternet) {
+      throw Exception(
+        'No internet connection. Please check your network settings.',
+      );
+    }
+
     final url = '$baseUrl$endpoint';
     final requestBody = jsonEncode(data);
     try {
@@ -57,6 +74,14 @@ class ApiService {
     String endpoint,
     Map<String, dynamic> data,
   ) async {
+    // Check internet connection before making API call
+    final hasInternet = await _connectivityService.hasInternetConnection();
+    if (!hasInternet) {
+      throw Exception(
+        'No internet connection. Please check your network settings.',
+      );
+    }
+
     final url = '$baseUrl$endpoint';
     final requestBody = jsonEncode(data);
     try {
@@ -80,6 +105,14 @@ class ApiService {
   }
 
   Future<void> delete(String endpoint) async {
+    // Check internet connection before making API call
+    final hasInternet = await _connectivityService.hasInternetConnection();
+    if (!hasInternet) {
+      throw Exception(
+        'No internet connection. Please check your network settings.',
+      );
+    }
+
     final url = '$baseUrl$endpoint';
     try {
       final response = await http.delete(
